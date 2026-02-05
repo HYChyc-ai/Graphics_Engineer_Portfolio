@@ -17,3 +17,4 @@ target_include_directories(glad PUBLIC
 
 # demos
 add_subdirectory(demos/01_OpenGL_Triangle)
+add_subdirectory(demos/02_OpenGL_Texture)
