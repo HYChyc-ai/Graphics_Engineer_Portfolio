@@ -1,0 +1,2 @@
+add_subdirectory(01_OpenGL_Triangle)
+add_subdirectory(02_OpenGL_Texture)
