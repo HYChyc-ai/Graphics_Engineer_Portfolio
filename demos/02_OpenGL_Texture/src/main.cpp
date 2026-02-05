@@ -2,6 +2,10 @@
 #include <GLFW/glfw3.h>
 #include <STB_IMAGE/stb_image.h>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
 #include "SHADER.h"
 
 #include <iostream>
@@ -154,7 +158,7 @@ int main()
 	glUniform1i(glGetUniformLocation(ourShader.ID, "texture1"), 0); // 手动设置，给uniform赋一个int值（0号纹理单元）
 	ourShader.setInt("texture2", 1); // 或者使用着色器类设置
 
-	// render loop
+	// 渲染循环
 	//------------
 	while (!glfwWindowShouldClose(window))
 	{
@@ -173,7 +177,23 @@ int main()
 		glActiveTexture(GL_TEXTURE1);
 		glBindTexture(GL_TEXTURE_2D, texture2);
 
+		/*
+		// 创建变换1（先放缩0.5倍，再绕z轴逆时针旋转90度）
+		glm::mat4 transform(1.0f); // 单位矩阵
+		transform = glm::rotate(transform, glm::radians(-90.0f), glm::vec3(0.0, 0.0, 1.0)); // 用radians函数转弧度制，并绕Z轴旋转
+		transform = glm::scale(transform, glm::vec3(0.5, 0.5, 0.5));
+		// 这里实际生效的变换是先缩放再旋转
+		*/
+
+		// 创建变换2，随时间旋转
+		glm::mat4 transform;
+		transform = glm::translate(transform, glm::vec3(0.5f, -0.5f, 0.0f)); // 平移
+		transform = glm::rotate(transform, (float)glfwGetTime(), glm::vec3(0.0f, 0.0f, 1.0f));
+
 		ourShader.use();
+		unsigned int transformLoc = glGetUniformLocation(ourShader.ID, "transform"); // 在这个shader里，找到一个叫transform的uniform变量，并给出地址
+		glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+
 		glBindVertexArray(VAO);
 		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 		
