@@ -10,7 +10,7 @@
 ### 效果呈现
 
 <p align="center">
-  <img src="demos/02_OpenGL_Texture/resources/textures/result.png" width="500">
+  <img src="resources/textures/result.png" width="500">
 </p>
 
 
