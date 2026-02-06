@@ -13,4 +13,10 @@
 - 基本图像坐标变换：平移，旋转，放缩
 - [进入项目](./demos/02_OpenGL_Texture)
 
+### 03. 多立方体动画
+- 理解 **Model / View / Projection** 矩阵在渲染管线中的作用
+- 掌握 **基于时间的动画（Time-based Animation）**
+- 实现 **多个物体的独立变换**
+- [进入项目](./demos/03_OpenGL_3D_Space)
+
 > 后续 demo 持续更新中……
