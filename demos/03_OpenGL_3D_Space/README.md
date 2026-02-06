@@ -14,7 +14,7 @@
 ### Demo效果预览
 
 <p align="center">
-  <img src="resources/result/rotating_cubes.gif" width="600"/>
+  <img src="resources/assets/rotating_cubes.gif" width="600"/>
 </p>
 
 > 场景中包含多个立方体：
