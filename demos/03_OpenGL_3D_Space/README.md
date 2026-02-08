@@ -1,4 +1,4 @@
-## 02_OpenGL_3D_Space
+## 03_OpenGL_3D_Space
 
 这是一个基于 **OpenGL 3.3 core** 的学习型 Demo，参照 LearnOpenGL CN 1.8节
 主要用于理解和实践 **Model / View / Projection 变换**
