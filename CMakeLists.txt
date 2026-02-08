@@ -32,4 +32,4 @@ include_directories(
 add_subdirectory(demos/01_OpenGL_Triangle)
 add_subdirectory(demos/02_OpenGL_Texture)
 add_subdirectory(demos/03_OpenGL_3D_Space)
-
+add_subdirectory(demos/04_OpenGL_Light)
