@@ -171,20 +171,36 @@ int main()
 		glClearColor(0.1f, 0.1f, 0.1f, 1.0f);//背景色
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);//清屏，并清除深度缓冲！
 
+
 		lightingShader.use();
-		lightingShader.setVec3("objectColor", 1.0f, 0.5f, 0.31f);
-		lightingShader.setVec3("lightColor", 1.0f, 1.0f, 1.0f);
 		// 为计算漫反射增添光源位置（uniform）
 		lightingShader.setVec3("lightPos", lightPos);
 		// 为计算镜面反射增添观察者位置
 		lightingShader.setVec3("viewPos", camera.Position);
+
+		// 设置材质
+		lightingShader.setVec3("material.ambient", 1.0f, 0.5f, 0.31f);
+		lightingShader.setVec3("material.diffuse", 1.0f, 0.5f, 0.31f);
+		lightingShader.setVec3("material.specular", 0.5f, 0.5f, 0.5f);
+		lightingShader.setFloat("material.shininess", 32.0f);
+
+		// 设置光照
+		glm::vec3 lightColor;
+		lightColor.x = sin(glfwGetTime() * 2.0f); // 后面的常数在控制每种颜色变化速率
+		lightColor.y = sin(glfwGetTime() * 0.7f);
+		lightColor.z = sin(glfwGetTime() * 1.3f);
+		glm::vec3 diffuseColor = lightColor * glm::vec3(0.5f); // 降低影响
+		glm::vec3 ambientColor = diffuseColor * glm::vec3(0.2f); // 很低的影响
+		// 这里通过diffuseColor影响ambientColor，是为了在变化的光中两者保持一致，不会出现光已经很暗，ambient还很亮的问题
+		lightingShader.setVec3("light.ambient", ambientColor);
+		lightingShader.setVec3("light.diffuse", diffuseColor);
+		lightingShader.setVec3("light.specular", 1.0f, 1.0f, 1.0f);
 
 		// 观察/投影变化
 		glm::mat4 projection = glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 100.0f);
 		lightingShader.setMat4("projection", projection);
 		glm::mat4 view = camera.GetViewMatrix();
 		lightingShader.setMat4("view", view);
-
 		// 世界变化
 		glm::mat4 model = glm::mat4(1.0f);
 		lightingShader.setMat4("model", model);

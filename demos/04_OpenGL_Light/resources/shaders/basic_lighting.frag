@@ -4,34 +4,48 @@ out vec4 FragColor;
 in vec3 Normal;
 in vec3 FragPos;
 
-uniform vec3 objectColor;
-uniform vec3 lightColor;
+struct Material
+{
+	vec3 ambient;
+	vec3 diffuse;
+	vec3 specular;
+	float shininess; // 反光度
+};
+
+struct Light
+{
+	vec3 Position;
+
+	vec3 ambient;
+	vec3 diffuse;
+	vec3 specular;
+	// 一个光源对它的ambient、diffuse和specular光照分量有着不同的强度
+};
+
+uniform Light light;
+uniform Material material;
+
+
 uniform vec3 lightPos;
 uniform vec3 viewPos;
-
-vec3 norm = normalize(Normal);
-vec3 lightDir = normalize(lightPos - FragPos); // 计算光照方向向量并标准化
-
 
 void main()
 {
 	// 环境光照
-	float ambientStrength = 0.1; // 很小的环境常量因子
-	vec3 ambient = ambientStrength * lightColor; // 环境光分量
+	vec3 ambient = material.ambient * light.ambient;
 
 	// 漫反射光照
+	vec3 norm = normalize(Normal);
+	vec3 lightDir = normalize(lightPos - FragPos); // 计算光照方向向量并标准化
 	float diff = max(dot(norm, lightDir), 0.0); 
-	// 对norm，lighDir进行点乘得到漫反射影响值，当大于90度时分量为负，为避免负数用max函数取两参数间更大的
-	vec3 diffuse = diff * lightColor; // 影响值乘光照即漫反射分量
+	vec3 diffuse = (diff * material.diffuse) * light.diffuse; // 影响值乘光照即漫反射分量
 
 	// 镜面光照
-	float specularStrength = 0.5; // 镜面强度变量
 	vec3 viewDir = normalize(viewPos - FragPos); // 视线方向向量
 	vec3 reflectDir = reflect(-lightDir, norm);  // 沿着法线的反射向量
-	// reflect函数要求第一个向量是从光源指向片段位置的向量，但是lightDir当前正好相反
-	float spec = pow(max(dot(viewDir,  reflectDir), 0.0), 32); // 取32次幂，32是高光反光度
-	vec3 specular = specularStrength * spec * lightColor; // 镜面反射分量
+	float spec = pow(max(dot(viewDir,  reflectDir), 0.0), material.shininess);
+	vec3 specular = (material.specular * spec) * light.specular; // 镜面反射分量
 
-	vec3 result = (ambient + diffuse + specular) * objectColor;
+	vec3 result = ambient + diffuse + specular;
 	FragColor = vec4(result, 1.0);
 }
