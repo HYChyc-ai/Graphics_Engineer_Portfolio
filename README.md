@@ -29,4 +29,16 @@
 
 - [进入项目](./demos/04_OpenGL_Light)
 
+### 05. 动态光源&多光照
+- **Phong 光照模型** 完整实现
+- 材质（Material）与光源（Light）结构体设计
+- 点光源（Point Light）
+- **聚光灯**（Spot Light，摄像机手电筒效果）
+- 聚光灯 **平滑边缘**（Soft Edge）
+- **多光源** 光照结果叠加
+- **法线矩阵**（Normal Matrix）解决旋转导致的高光错误
+- **动态光源运动**（绕物体旋转并上下起伏）
+
+- [进入项目](./demos/05_OpenGL_Advanced_Light)
+
 > 后续 demo 持续更新中……

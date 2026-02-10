@@ -2,4 +2,4 @@ add_subdirectory(01_OpenGL_Triangle)
 add_subdirectory(02_OpenGL_Texture)
 add_subdirectory(03_OpenGL_3D_Space)
 add_subdirectory(04_OpenGL_Light)
-
+add_subdirectory(05_OpenGL_Advanced_Light)
