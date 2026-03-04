@@ -15,6 +15,13 @@ add_subdirectory(third_party/glfw)
 add_library(glad
     third_party/glad/src/glad.c
 )
+
+# assimp
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+add_subdirectory(third_party/assimp)
+
+
 target_include_directories(glad
     PUBLIC
         ${PROJECT_SOURCE_DIR}/third_party/glad/include
@@ -34,3 +41,5 @@ add_subdirectory(demos/02_OpenGL_Texture)
 add_subdirectory(demos/03_OpenGL_3D_Space)
 add_subdirectory(demos/04_OpenGL_Light)
 add_subdirectory(demos/05_OpenGL_Advanced_Light)
+add_subdirectory(demos/06_OpenGL_Model_Loading)
+add_subdirectory(demos/07_OpenGL_Advanced_GL)
