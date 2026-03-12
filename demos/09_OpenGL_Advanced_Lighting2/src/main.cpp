@@ -24,7 +24,7 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void processInput(GLFWwindow* window);
 unsigned int loadTexture(const char* path);
 unsigned int loadCubemap(std::vector<std::string> faces);
-void RenderScene(const Shader& shader);
+void RenderScene(Shader& shader);
 void renderCube();
 void renderQuad();
 void SetupFramebuffers();
@@ -56,12 +56,12 @@ unsigned int screenTexture;
 unsigned int depthMapFBO;
 unsigned int depthMap;
 
-const unsigned int SHADOW_WIDTH = 1024;
-const unsigned int SHADOW_HEIGHT = 1024;
+const unsigned int SHADOW_WIDTH = 2048;
+const unsigned int SHADOW_HEIGHT = 2048;
 
 
 // 光源位置
-glm::vec3 lightPos = glm::vec3(0.0f, 0.7f, 0.0f);
+glm::vec3 lightPos = glm::vec3(0.0f, 7.0f, 0.0f);
 
 // 窗口设置
 const unsigned int SCR_WIDTH = 800;
@@ -186,22 +186,18 @@ int main()
 		glm::mat4 lightProjection, lightView;
 		glm::mat4 lightSpaceMatrix;
 
-		float near_plane = 1.0f, far_plane = 7.5f;
+		float near_plane = 0.1f, far_plane = 20.0f;
 
-		lightProjection = glm::ortho(
-			-2.0f, 2.0f,
-			-2.0f, 2.0f,
-			near_plane,
-			far_plane
-		);
+		lightProjection = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, near_plane, far_plane);
 
 		lightView = glm::lookAt(
 			lightPos,
-			glm::vec3(0.0f),
-			glm::vec3(0.0, 1.0, 0.0)
+			lightPos + glm::vec3(0, -1, 0),
+			glm::vec3(0.0f, 0.0f, 1.0f)
 		);
 
 		lightSpaceMatrix = lightProjection * lightView;
+
 
 		RenderShadowPass(simpleDepthShader, shader, lightSpaceMatrix);
 
@@ -210,11 +206,6 @@ int main()
 
 		ResolveMSAA();
 
-		//
-		screenShader.use();
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, depthMap);
-		//
 
 		RenderScreen(screenShader);
 
@@ -561,13 +552,24 @@ void SetupFramebuffers()
 // 渲染阴影
 void RenderShadowPass(Shader& simpleDepthShader, Shader& shader, glm::mat4 lightSpaceMatrix)
 {
+	glDisable(GL_FRAMEBUFFER_SRGB);
+	glEnable(GL_DEPTH_TEST);      
+	glDepthMask(GL_TRUE);
 	glViewport(0, 0, SHADOW_WIDTH, SHADOW_HEIGHT);
 	glBindFramebuffer(GL_FRAMEBUFFER, depthMapFBO);
 	glClear(GL_DEPTH_BUFFER_BIT);
 
+
+	glDisable(GL_CULL_FACE);
+
 	simpleDepthShader.use();
 	simpleDepthShader.setMat4("lightSpaceMatrix", lightSpaceMatrix);
+
 	RenderScene(simpleDepthShader);
+
+	glEnable(GL_CULL_FACE);
+
+	glEnable(GL_FRAMEBUFFER_SRGB);
 
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -602,6 +604,7 @@ void RenderScenePass(Shader& shader, Shader& lightShader, glm::mat4 view, glm::m
 
 	
 	// 这里绑定 shadow map
+	shader.setInt("material.albedo", 0);
 	glActiveTexture(GL_TEXTURE1);
 	glBindTexture(GL_TEXTURE_2D, depthMap);
 	shader.setInt("shadowMap", 1);
