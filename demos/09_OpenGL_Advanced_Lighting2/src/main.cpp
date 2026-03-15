@@ -17,7 +17,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <STB_IMAGE/stb_image.h>
 
-// Callback function
+// Callback function---------------------------------------------------------------------------
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void mouse_callback(GLFWwindow* window, double xpos, double ypos);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
@@ -36,11 +36,15 @@ void RenderLight(Shader& lightShader, glm::mat4& view, glm::mat4& projection);
 void renderPlane();
 void RenderFloor(Shader& shader);
 void RenderCubes(Shader& shader);
+void RenderBloomPass(Shader& filterShader, Shader& gaussShader, Shader& upsampleShader);
 
-// 全局变量
-unsigned int planeVAO, planeVBO;
+// 全局变量----------------------------------------------
 unsigned int floorTexture;
 unsigned int cubeTexture;
+unsigned int cubeNormalMap;
+unsigned int defaultNormalMap;
+
+unsigned int planeVAO, planeVBO;
 unsigned int quadVAO = 0;
 unsigned int quadVBO;
 unsigned int cubeVAO = 0;
@@ -59,8 +63,15 @@ unsigned int depthMap;
 const unsigned int SHADOW_WIDTH = 2048;
 const unsigned int SHADOW_HEIGHT = 2048;
 
-float exposure = 1.0f;
+float exposure = 0.5f;
+float bloomStrength = 0.1f;
+const int BLOOM_LEVEL = 5;
+unsigned int blurFBO[BLOOM_LEVEL + 1];
+unsigned int blurColorBuffer1[BLOOM_LEVEL + 1];
+unsigned int blurColorBuffer2[BLOOM_LEVEL + 1];
+unsigned int blurColorBuffer3[BLOOM_LEVEL + 1];
 
+//---------------------------------------------------------
 // 光源位置
 glm::vec3 lightPos = glm::vec3(0.0f, 0.0f, 0.0f);
 
@@ -81,7 +92,7 @@ bool firstMouse = true;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-
+// main=====================================================================================
 int main()
 {
 	// glfw: initialize and configure
@@ -111,16 +122,12 @@ int main()
 	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 	// glad: load all OpenGL function pointers
-	//----------------------------------------
 	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 	{
 		std::cout << "Fail to initialize GLAD" << std::endl;
 		return -1;
 	}
 
-	// 调整openGL功能, 开启深度测试
-	// 当它启用的时候，如果一个片段通过了深度测试的话，OpenGL会在深度缓冲中储存该片段的z值；
-	// 如果没有通过深度缓冲，则会丢弃该片段
 	glEnable(GL_DEPTH_TEST);
 	// 深度测试函数，默认是GL_LESS比较运算符
 	glDepthFunc(GL_LESS);
@@ -131,11 +138,11 @@ int main()
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	// 启用面剔除
-	
+
 	glEnable(GL_CULL_FACE);
-	glCullFace(GL_BACK); // 默认值是back，剔除背面
-	glFrontFace(GL_CCW); // 默认定义正面为逆时针，若想改为顺时针正面用GL_CW
-	
+	glCullFace(GL_BACK); 
+	glFrontFace(GL_CCW); 
+
 	// opengl 自动 gamma
 	//glEnable(GL_FRAMEBUFFER_SRGB);
 
@@ -143,33 +150,47 @@ int main()
 	glEnable(GL_MULTISAMPLE);
 
 	// 创建并编译着色器
-	// ------------------------------------
+	// ------------------------------------------------------------------------------------------------------
 	Shader shader("resources/shaders/cube_shader.vs", "resources/shaders/cube_shader.fs");
 	Shader screenShader("resources/shaders/screenShader.vs", "resources/shaders/screenShader.fs");
 	Shader lightShader("resources/shaders/lighting_cube.vs", "resources/shaders/lighting_cube.fs");
 	Shader simpleDepthShader(
-		"resources/shaders/shadow_mapping_depth.vs", 
+		"resources/shaders/shadow_mapping_depth.vs",
 		"resources/shaders/shadow_mapping_depth.fs",
 		"resources/shaders/shadow_mapping_depth.gs"
 	);
+	Shader filterShader("resources/shaders/screenShader.vs", "resources/shaders/filter.fs");
+	Shader gaussShader("resources/shaders/screenShader.vs", "resources/shaders/gauss.fs");
+	Shader upsampleShader("resources/shaders/screenShader.vs", "resources/shaders/upsample.fs");
+	Shader blendShader("resources/shaders/screenShader.vs", "resources/shaders/blend.fs");
 
-
-	// 加载纹理
-	cubeTexture = loadTexture("resources/textures/gold_block.png");
+	// 加载纹理---------------------------------------------------------------------------------------------------
+	cubeTexture = loadTexture("resources/textures/crying_obsidian.png");
 	floorTexture = loadTexture("resources/textures/wood.png");
+	cubeNormalMap = loadTexture("resources/textures/crying_obsidian_n.png");
 
-	
 	shader.use();
 	shader.setInt("material.albedo", 0);
+	shader.setInt("material.normalMap", 2);
 
 	screenShader.use();
 	screenShader.setInt("screenTexture", 0);
-	
-	// 加载帧缓冲------------------------------------------
+
+	// 加载帧缓冲-------------------------------------------------------------------------------------------------
 	SetupFramebuffers();
 
+	//临时默认法线贴图=========
+	// 创建一个 1x1 的默认法线贴图 (0.5, 0.5, 1.0) → 解码后是 (0,0,1)
+	unsigned char defaultNormal[] = { 128, 128, 255 };
+	glGenTextures(1, &defaultNormalMap);
+	glBindTexture(GL_TEXTURE_2D, defaultNormalMap);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, defaultNormal);
+	//========================
+
+
 	// 渲染循环
-	//------------
+	//-----------------------------------------
+	//-----------------------------------------
 	while (!glfwWindowShouldClose(window))
 	{
 		float currentFrame = static_cast<float>(glfwGetTime());
@@ -203,7 +224,10 @@ int main()
 		RenderScenePass(shader, lightShader, view, projection, far_plane);  // ← 改成传 far_plane
 
 		ResolveMSAA();
-		RenderScreen(screenShader);
+
+		RenderBloomPass(filterShader, gaussShader, upsampleShader);
+		glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
+		RenderScreen(blendShader);
 
 		glfwSwapBuffers(window);
 		glfwPollEvents();
@@ -239,13 +263,16 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 // 渲染地面
 void RenderFloor(Shader& shader)
 {
-	
-		shader.setFloat("material.shininess", 32.0f);
-		shader.setVec3("light.specular", 0.3f, 0.3f, 0.3f);
 
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, floorTexture);
-	
+	shader.setFloat("material.shininess", 32.0f);
+	shader.setVec3("light.specular", 0.3f, 0.3f, 0.3f);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, floorTexture);
+	// 地面暂时的纯蓝色法线贴图============
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, defaultNormalMap);
+	shader.setInt("material.normalMap", 2);
 
 	glm::mat4 model = glm::mat4(1.0f);
 	model = glm::translate(model, glm::vec3(0.0f, 0.0f, 0.0f));
@@ -260,14 +287,13 @@ void renderPlane()
 	if (planeVAO == 0)
 	{
 		float planeVertices[] = {
-			// positions            // normals         // texcoords
-		-10.0f, -0.5f, -10.0f,  0.0f, 1.0f, 0.0f,   0.0f, 10.0f,
-		-10.0f, -0.5f,  10.0f,  0.0f, 1.0f, 0.0f,   0.0f,  0.0f,
-		 10.0f, -0.5f,  10.0f,  0.0f, 1.0f, 0.0f,  10.0f,  0.0f,
-
-		-10.0f, -0.5f, -10.0f,  0.0f, 1.0f, 0.0f,   0.0f, 10.0f,
-		 10.0f, -0.5f,  10.0f,  0.0f, 1.0f, 0.0f,  10.0f,  0.0f,
-		 10.0f, -0.5f, -10.0f,  0.0f, 1.0f, 0.0f,  10.0f, 10.0f,
+			// positions              // normals          // texcoords    // tangents
+			-10.0f, -0.5f, -10.0f,  0.0f, 1.0f, 0.0f,   0.0f, 10.0f,  1.0f, 0.0f, 0.0f,
+			-10.0f, -0.5f,  10.0f,  0.0f, 1.0f, 0.0f,   0.0f,  0.0f,  1.0f, 0.0f, 0.0f,
+			 10.0f, -0.5f,  10.0f,  0.0f, 1.0f, 0.0f,  10.0f,  0.0f,  1.0f, 0.0f, 0.0f,
+			-10.0f, -0.5f, -10.0f,  0.0f, 1.0f, 0.0f,   0.0f, 10.0f,  1.0f, 0.0f, 0.0f,
+			 10.0f, -0.5f,  10.0f,  0.0f, 1.0f, 0.0f,  10.0f,  0.0f,  1.0f, 0.0f, 0.0f,
+			 10.0f, -0.5f, -10.0f,  0.0f, 1.0f, 0.0f,  10.0f, 10.0f,  1.0f, 0.0f, 0.0f,
 		};
 
 		// plane VAO
@@ -277,11 +303,13 @@ void renderPlane()
 		glBindBuffer(GL_ARRAY_BUFFER, planeVBO);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(planeVertices), planeVertices, GL_STATIC_DRAW);
 		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
 		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
 		glEnableVertexAttribArray(2);
-		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
+		glEnableVertexAttribArray(3);
+		glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
 		glBindVertexArray(0);
 	}
 
@@ -295,13 +323,15 @@ void renderPlane()
 // 渲染所有立方体
 void RenderCubes(Shader& shader)
 {
-	
-	
-		shader.setFloat("material.shininess", 500.0f);
-		shader.setVec3("light.specular", 1.0f, 1.0f, 1.0f);
 
-		glActiveTexture(GL_TEXTURE0);
-		glBindTexture(GL_TEXTURE_2D, cubeTexture);
+
+	shader.setFloat("material.shininess", 500.0f);
+	shader.setVec3("light.specular", 1.0f, 1.0f, 1.0f);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, cubeTexture);
+	glActiveTexture(GL_TEXTURE2);
+	glBindTexture(GL_TEXTURE_2D, cubeNormalMap);
 
 
 	glm::mat4 model;
@@ -324,74 +354,81 @@ void RenderCubes(Shader& shader)
 
 void renderCube()
 {
-	// initialize (if necessary)
 	if (cubeVAO == 0)
 	{
 		float vertices[] = {
-			// positions          // normals      // texcoords
-			-0.5f,-0.5f,-0.5f,  0.0f,0.0f,-1.0f,  0.0f,0.0f,
-			 0.5f, 0.5f,-0.5f,  0.0f,0.0f,-1.0f,  1.0f,1.0f,
-			 0.5f,-0.5f,-0.5f,  0.0f,0.0f,-1.0f,  1.0f,0.0f,
-			 0.5f, 0.5f,-0.5f,  0.0f,0.0f,-1.0f,  1.0f,1.0f,
-			-0.5f,-0.5f,-0.5f,  0.0f,0.0f,-1.0f,  0.0f,0.0f,
-			-0.5f, 0.5f,-0.5f,  0.0f,0.0f,-1.0f,  0.0f,1.0f,
-
-			-0.5f,-0.5f, 0.5f,  0.0f,0.0f, 1.0f,  0.0f,0.0f,
-			 0.5f,-0.5f, 0.5f,  0.0f,0.0f, 1.0f,  1.0f,0.0f,
-			 0.5f, 0.5f, 0.5f,  0.0f,0.0f, 1.0f,  1.0f,1.0f,
-			 0.5f, 0.5f, 0.5f,  0.0f,0.0f, 1.0f,  1.0f,1.0f,
-			-0.5f, 0.5f, 0.5f,  0.0f,0.0f, 1.0f,  0.0f,1.0f,
-			-0.5f,-0.5f, 0.5f,  0.0f,0.0f, 1.0f,  0.0f,0.0f,
-
-			-0.5f, 0.5f, 0.5f, -1.0f,0.0f,0.0f,  1.0f,0.0f,
-			-0.5f, 0.5f,-0.5f, -1.0f,0.0f,0.0f,  1.0f,1.0f,
-			-0.5f,-0.5f,-0.5f, -1.0f,0.0f,0.0f,  0.0f,1.0f,
-			-0.5f,-0.5f,-0.5f, -1.0f,0.0f,0.0f,  0.0f,1.0f,
-			-0.5f,-0.5f, 0.5f, -1.0f,0.0f,0.0f,  0.0f,0.0f,
-			-0.5f, 0.5f, 0.5f, -1.0f,0.0f,0.0f,  1.0f,0.0f,
-
-			 0.5f, 0.5f, 0.5f,  1.0f,0.0f,0.0f,  1.0f,0.0f,
-			 0.5f,-0.5f,-0.5f,  1.0f,0.0f,0.0f,  0.0f,1.0f,
-			 0.5f, 0.5f,-0.5f,  1.0f,0.0f,0.0f,  1.0f,1.0f,
-			 0.5f,-0.5f,-0.5f,  1.0f,0.0f,0.0f,  0.0f,1.0f,
-			 0.5f, 0.5f, 0.5f,  1.0f,0.0f,0.0f,  1.0f,0.0f,
-			 0.5f,-0.5f, 0.5f,  1.0f,0.0f,0.0f,  0.0f,0.0f,
-
-			-0.5f,-0.5f,-0.5f,  0.0f,-1.0f,0.0f,  0.0f,1.0f,
-			 0.5f,-0.5f,-0.5f,  0.0f,-1.0f,0.0f,  1.0f,1.0f,
-			 0.5f,-0.5f, 0.5f,  0.0f,-1.0f,0.0f,  1.0f,0.0f,
-			 0.5f,-0.5f, 0.5f,  0.0f,-1.0f,0.0f,  1.0f,0.0f,
-			-0.5f,-0.5f, 0.5f,  0.0f,-1.0f,0.0f,  0.0f,0.0f,
-			-0.5f,-0.5f,-0.5f,  0.0f,-1.0f,0.0f,  0.0f,1.0f,
-
-			-0.5f, 0.5f,-0.5f,  0.0f,1.0f,0.0f,  0.0f,1.0f,
-			 0.5f, 0.5f, 0.5f,  0.0f,1.0f,0.0f,  1.0f,0.0f,
-			 0.5f, 0.5f,-0.5f,  0.0f,1.0f,0.0f,  1.0f,1.0f,
-			 0.5f, 0.5f, 0.5f,  0.0f,1.0f,0.0f,  1.0f,0.0f,
-			-0.5f, 0.5f,-0.5f,  0.0f,1.0f,0.0f,  0.0f,1.0f,
-			-0.5f, 0.5f, 0.5f,  0.0f,1.0f,0.0f,  0.0f,0.0f
+			// positions          // normals     // texcoords   // tangents
+			// 后面 (normal 0,0,-1, tangent -1,0,0)
+			-0.5f,-0.5f,-0.5f,  0.0f,0.0f,-1.0f,  0.0f,0.0f,  -1.0f,0.0f,0.0f,
+			 0.5f, 0.5f,-0.5f,  0.0f,0.0f,-1.0f,  1.0f,1.0f,  -1.0f,0.0f,0.0f,
+			 0.5f,-0.5f,-0.5f,  0.0f,0.0f,-1.0f,  1.0f,0.0f,  -1.0f,0.0f,0.0f,
+			 0.5f, 0.5f,-0.5f,  0.0f,0.0f,-1.0f,  1.0f,1.0f,  -1.0f,0.0f,0.0f,
+			-0.5f,-0.5f,-0.5f,  0.0f,0.0f,-1.0f,  0.0f,0.0f,  -1.0f,0.0f,0.0f,
+			-0.5f, 0.5f,-0.5f,  0.0f,0.0f,-1.0f,  0.0f,1.0f,  -1.0f,0.0f,0.0f,
+			// 前面 (normal 0,0,1, tangent 1,0,0)
+			-0.5f,-0.5f, 0.5f,  0.0f,0.0f, 1.0f,  0.0f,0.0f,   1.0f,0.0f,0.0f,
+			 0.5f,-0.5f, 0.5f,  0.0f,0.0f, 1.0f,  1.0f,0.0f,   1.0f,0.0f,0.0f,
+			 0.5f, 0.5f, 0.5f,  0.0f,0.0f, 1.0f,  1.0f,1.0f,   1.0f,0.0f,0.0f,
+			 0.5f, 0.5f, 0.5f,  0.0f,0.0f, 1.0f,  1.0f,1.0f,   1.0f,0.0f,0.0f,
+			-0.5f, 0.5f, 0.5f,  0.0f,0.0f, 1.0f,  0.0f,1.0f,   1.0f,0.0f,0.0f,
+			-0.5f,-0.5f, 0.5f,  0.0f,0.0f, 1.0f,  0.0f,0.0f,   1.0f,0.0f,0.0f,
+			// 左面 (normal -1,0,0, tangent 0,0,-1)
+			-0.5f, 0.5f, 0.5f, -1.0f,0.0f,0.0f,  1.0f,0.0f,   0.0f,0.0f,-1.0f,
+			-0.5f, 0.5f,-0.5f, -1.0f,0.0f,0.0f,  1.0f,1.0f,   0.0f,0.0f,-1.0f,
+			-0.5f,-0.5f,-0.5f, -1.0f,0.0f,0.0f,  0.0f,1.0f,   0.0f,0.0f,-1.0f,
+			-0.5f,-0.5f,-0.5f, -1.0f,0.0f,0.0f,  0.0f,1.0f,   0.0f,0.0f,-1.0f,
+			-0.5f,-0.5f, 0.5f, -1.0f,0.0f,0.0f,  0.0f,0.0f,   0.0f,0.0f,-1.0f,
+			-0.5f, 0.5f, 0.5f, -1.0f,0.0f,0.0f,  1.0f,0.0f,   0.0f,0.0f,-1.0f,
+			// 右面 (normal 1,0,0, tangent 0,0,1)
+			 0.5f, 0.5f, 0.5f,  1.0f,0.0f,0.0f,  1.0f,0.0f,   0.0f,0.0f, 1.0f,
+			 0.5f,-0.5f,-0.5f,  1.0f,0.0f,0.0f,  0.0f,1.0f,   0.0f,0.0f, 1.0f,
+			 0.5f, 0.5f,-0.5f,  1.0f,0.0f,0.0f,  1.0f,1.0f,   0.0f,0.0f, 1.0f,
+			 0.5f,-0.5f,-0.5f,  1.0f,0.0f,0.0f,  0.0f,1.0f,   0.0f,0.0f, 1.0f,
+			 0.5f, 0.5f, 0.5f,  1.0f,0.0f,0.0f,  1.0f,0.0f,   0.0f,0.0f, 1.0f,
+			 0.5f,-0.5f, 0.5f,  1.0f,0.0f,0.0f,  0.0f,0.0f,   0.0f,0.0f, 1.0f,
+			 // 下面 (normal 0,-1,0, tangent 1,0,0)
+			 -0.5f,-0.5f,-0.5f,  0.0f,-1.0f,0.0f,  0.0f,1.0f,   1.0f,0.0f,0.0f,
+			  0.5f,-0.5f,-0.5f,  0.0f,-1.0f,0.0f,  1.0f,1.0f,   1.0f,0.0f,0.0f,
+			  0.5f,-0.5f, 0.5f,  0.0f,-1.0f,0.0f,  1.0f,0.0f,   1.0f,0.0f,0.0f,
+			  0.5f,-0.5f, 0.5f,  0.0f,-1.0f,0.0f,  1.0f,0.0f,   1.0f,0.0f,0.0f,
+			 -0.5f,-0.5f, 0.5f,  0.0f,-1.0f,0.0f,  0.0f,0.0f,   1.0f,0.0f,0.0f,
+			 -0.5f,-0.5f,-0.5f,  0.0f,-1.0f,0.0f,  0.0f,1.0f,   1.0f,0.0f,0.0f,
+			 // 上面 (normal 0,1,0, tangent 1,0,0)
+			 -0.5f, 0.5f,-0.5f,  0.0f,1.0f,0.0f,  0.0f,1.0f,   1.0f,0.0f,0.0f,
+			  0.5f, 0.5f, 0.5f,  0.0f,1.0f,0.0f,  1.0f,0.0f,   1.0f,0.0f,0.0f,
+			  0.5f, 0.5f,-0.5f,  0.0f,1.0f,0.0f,  1.0f,1.0f,   1.0f,0.0f,0.0f,
+			  0.5f, 0.5f, 0.5f,  0.0f,1.0f,0.0f,  1.0f,0.0f,   1.0f,0.0f,0.0f,
+			 -0.5f, 0.5f,-0.5f,  0.0f,1.0f,0.0f,  0.0f,1.0f,   1.0f,0.0f,0.0f,
+			 -0.5f, 0.5f, 0.5f,  0.0f,1.0f,0.0f,  0.0f,0.0f,   1.0f,0.0f,0.0f,
 		};
+
 		glGenVertexArrays(1, &cubeVAO);
 		glGenBuffers(1, &cubeVBO);
-		// fill buffer
 		glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
 		glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-		// link vertex attributes
 		glBindVertexArray(cubeVAO);
+
+		// location 0: position
 		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
+		// location 1: normal
 		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+		glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
+		// location 2: texcoord
 		glEnableVertexAttribArray(2);
-		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
+		glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
+		// location 3: tangent
+		glEnableVertexAttribArray(3);
+		glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
+
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glBindVertexArray(0);
 	}
-	// render Cube
 	glBindVertexArray(cubeVAO);
 	glDrawArrays(GL_TRIANGLES, 0, 36);
 	glBindVertexArray(0);
 }
+
 
 void RenderScene(Shader& shader)
 {
@@ -516,6 +553,55 @@ void SetupFramebuffers()
 	glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, depthMap, 0);
 	glDrawBuffer(GL_NONE);
 	glReadBuffer(GL_NONE);
+	
+	// Bloom FBO
+	glGenFramebuffers(BLOOM_LEVEL + 1, blurFBO);
+
+	for (int i = 0; i < BLOOM_LEVEL + 1; i++)
+	{
+		int scale = 1 << i;
+		glBindFramebuffer(GL_FRAMEBUFFER, blurFBO[i]);
+
+		// attachment0：存当前层模糊结果
+		unsigned int tex1;
+		glGenTextures(1, &tex1);
+		glBindTexture(GL_TEXTURE_2D, tex1);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, SCR_WIDTH / scale, SCR_HEIGHT / scale, 0, GL_RGB, GL_FLOAT, NULL);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex1, 0);
+		blurColorBuffer1[i] = tex1;
+
+		if (i != 0)
+		{
+			unsigned int tex2, tex3;
+
+			glGenTextures(1, &tex2);
+			glBindTexture(GL_TEXTURE_2D, tex2);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, SCR_WIDTH / scale, SCR_HEIGHT / scale, 0, GL_RGB, GL_FLOAT, NULL);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, tex2, 0);
+			blurColorBuffer2[i] = tex2;
+
+			glGenTextures(1, &tex3);
+			glBindTexture(GL_TEXTURE_2D, tex3);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, SCR_WIDTH / scale, SCR_HEIGHT / scale, 0, GL_RGB, GL_FLOAT, NULL);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, tex3, 0);
+			blurColorBuffer3[i] = tex3;
+		}
+
+		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+			std::cout << "Bloom FBO[" << i << "] not complete!" << std::endl;
+	}
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
@@ -555,34 +641,132 @@ void RenderShadowPass(Shader& simpleDepthShader, Shader& shader, float far_plane
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+// 泛光
+void RenderBloomPass(Shader& filterShader, Shader& gaussShader, Shader& upsampleShader)
+{
+	// Step1: 提取亮部到 blurFBO[0] attachment0
+	glViewport(0, 0, SCR_WIDTH, SCR_HEIGHT);
+	glBindFramebuffer(GL_FRAMEBUFFER, blurFBO[0]);
+	glDrawBuffer(GL_COLOR_ATTACHMENT0);
+	glClear(GL_COLOR_BUFFER_BIT);
+	filterShader.use();
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, screenTexture);  // intermediateFBO 的输出
+	filterShader.setInt("colorBuffer", 0);
+	renderQuad();
+
+	// Step2: 下采样 + 高斯模糊
+	gaussShader.use();
+	for (int i = 1; i < BLOOM_LEVEL + 1; i++)
+	{
+		int scale = 1 << i;
+		glViewport(0, 0, SCR_WIDTH / scale, SCR_HEIGHT / scale);
+		glBindFramebuffer(GL_FRAMEBUFFER, blurFBO[i]);
+
+		// 下采样
+		glDrawBuffer(GL_COLOR_ATTACHMENT0);
+		glClear(GL_COLOR_BUFFER_BIT);
+		gaussShader.setInt("isy", 0);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, blurColorBuffer1[i - 1]);
+		gaussShader.setInt("colorBuffer", 0);
+		renderQuad();
+
+		// 垂直模糊
+		glDrawBuffer(GL_COLOR_ATTACHMENT1);
+		glClear(GL_COLOR_BUFFER_BIT);
+		gaussShader.setInt("isy", 1);
+		glBindTexture(GL_TEXTURE_2D, blurColorBuffer1[i]);
+		renderQuad();
+
+		// 水平模糊
+		glDrawBuffer(GL_COLOR_ATTACHMENT0);
+		glClear(GL_COLOR_BUFFER_BIT);
+		gaussShader.setInt("isy", 0);
+		glBindTexture(GL_TEXTURE_2D, blurColorBuffer2[i]);
+		renderQuad();
+	}
+
+	// Step3: 上采样叠加
+	// 最高层先做一次模糊
+	int topScale = 1 << BLOOM_LEVEL;
+	glViewport(0, 0, SCR_WIDTH / topScale, SCR_HEIGHT / topScale);
+	glBindFramebuffer(GL_FRAMEBUFFER, blurFBO[BLOOM_LEVEL]);
+	gaussShader.use();
+
+	glDrawBuffer(GL_COLOR_ATTACHMENT1);
+	gaussShader.setInt("isy", 1);
+	glBindTexture(GL_TEXTURE_2D, blurColorBuffer1[BLOOM_LEVEL]);
+	renderQuad();
+
+	glDrawBuffer(GL_COLOR_ATTACHMENT2);
+	gaussShader.setInt("isy", 0);
+	glBindTexture(GL_TEXTURE_2D, blurColorBuffer2[BLOOM_LEVEL]);
+	renderQuad();
+
+	// 逐层上采样
+	for (int i = BLOOM_LEVEL - 1; i > 0; i--)
+	{
+		int scale = 1 << i;
+		glViewport(0, 0, SCR_WIDTH / scale, SCR_HEIGHT / scale);
+		glBindFramebuffer(GL_FRAMEBUFFER, blurFBO[i]);
+		gaussShader.use();
+
+		glDrawBuffer(GL_COLOR_ATTACHMENT1);
+		gaussShader.setInt("isy", 1);
+		glBindTexture(GL_TEXTURE_2D, blurColorBuffer1[i]);
+		renderQuad();
+
+		glDrawBuffer(GL_COLOR_ATTACHMENT0);
+		gaussShader.setInt("isy", 0);
+		glBindTexture(GL_TEXTURE_2D, blurColorBuffer2[i]);
+		renderQuad();
+
+		// 上采样叠加
+		upsampleShader.use();
+		upsampleShader.setInt("currentLevel", i);
+		upsampleShader.setFloat("baseWeight", 0.3f);
+		upsampleShader.setFloat("growthRate", 0.05f);
+		glDrawBuffer(GL_COLOR_ATTACHMENT2);
+		glClear(GL_COLOR_BUFFER_BIT);
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, blurColorBuffer1[i]);
+		upsampleShader.setInt("downTex", 0);
+		glActiveTexture(GL_TEXTURE1);
+		glBindTexture(GL_TEXTURE_2D, blurColorBuffer3[i + 1]);
+		upsampleShader.setInt("preTex", 1);
+		renderQuad();
+	}
+}
+
 // 渲染真实场景
 void RenderScenePass(Shader& shader, Shader& lightShader, glm::mat4 view, glm::mat4 projection, float far_plane)
 {
-    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
-    glEnable(GL_DEPTH_TEST);
-    glDepthMask(GL_TRUE);
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+	glEnable(GL_DEPTH_TEST);
+	glDepthMask(GL_TRUE);
+	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    shader.use();
-    shader.setMat4("view", view);
-    shader.setMat4("projection", projection);
-    shader.setVec3("viewPos", camera.Position);
-    shader.setVec3("light.position", lightPos);
-    shader.setVec3("light.ambient", 0.05f, 0.05f, 0.05f);
-    shader.setVec3("light.diffuse", 1.0f, 1.0f, 1.0f);
-    shader.setFloat("light.constant", 1.0f);
-    shader.setFloat("light.linear", 0.09f);
-    shader.setFloat("light.quadratic", 0.032f);
-    shader.setFloat("far_plane", far_plane);  // ← 传 far_plane
+	shader.use();
+	shader.setMat4("view", view);
+	shader.setMat4("projection", projection);
+	shader.setVec3("viewPos", camera.Position);
+	shader.setVec3("light.position", lightPos);
+	shader.setVec3("light.ambient", 0.05f, 0.05f, 0.05f);
+	shader.setVec3("light.diffuse", 2.0f, 2.0f, 2.0f);
+	shader.setFloat("light.constant", 1.0f);
+	shader.setFloat("light.linear", 0.09f);
+	shader.setFloat("light.quadratic", 0.032f);
+	shader.setFloat("far_plane", far_plane);  // ← 传 far_plane
 
-    shader.setInt("material.albedo", 0);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, depthMap);  // ← 改成 CUBE_MAP
-    shader.setInt("shadowMap", 1);
+	shader.setInt("material.albedo", 0);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_CUBE_MAP, depthMap);  // ← 改成 CUBE_MAP
+	shader.setInt("shadowMap", 1);
 
-    RenderScene(shader);
-    RenderLight(lightShader, view, projection);
+	RenderScene(shader);
+	RenderLight(lightShader, view, projection);
 }
 
 // MSAA->普通纹理
@@ -629,19 +813,22 @@ void renderQuad()
 
 
 // 将帧缓冲纹理贴上
-void RenderScreen(Shader& screenShader)
+void RenderScreen(Shader& blendShader)
 {
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
 	glDisable(GL_DEPTH_TEST);
-
-	glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	screenShader.use();
-	screenShader.setFloat("exposure", exposure);
+	blendShader.use();
 	glActiveTexture(GL_TEXTURE0);
 	glBindTexture(GL_TEXTURE_2D, screenTexture);
+	blendShader.setInt("sceneColorBuffer", 0);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, blurColorBuffer3[1]);
+	blendShader.setInt("bloomColorBuffer", 1);
+	blendShader.setFloat("exposure", exposure);
+	blendShader.setFloat("bloomStrength", bloomStrength);
 
 	renderQuad();
 }
@@ -724,12 +911,12 @@ unsigned int loadTexture(char const* path)
 		else if (nrComponents == 3)
 		{
 			format = GL_RGB;
-			internalFormat = GL_SRGB;   
+			internalFormat = GL_SRGB;
 		}
 		else if (nrComponents == 4)
 		{
 			format = GL_RGBA;
-			internalFormat = GL_SRGB_ALPHA; 
+			internalFormat = GL_SRGB_ALPHA;
 		}
 
 		glBindTexture(GL_TEXTURE_2D, textureID);

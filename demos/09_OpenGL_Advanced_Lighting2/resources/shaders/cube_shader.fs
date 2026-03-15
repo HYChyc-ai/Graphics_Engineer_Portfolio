@@ -3,13 +3,14 @@ out vec4 FragColor;
 
 in VS_OUT {
     vec3 FragPos;
-    vec3 Normal;
     vec2 TexCoords;
+    mat3 TBN;
 } fs_in;
 
 struct Material
 {
     sampler2D albedo;
+    sampler2D normalMap;
     float shininess;
     vec3 specular;
 };
@@ -42,7 +43,11 @@ void main()
 {
     vec3 albedo = texture(material.albedo, fs_in.TexCoords).rgb;
 
-    vec3 normal = normalize(fs_in.Normal);
+    
+    vec3 normal = texture(material.normalMap, fs_in.TexCoords).rgb;
+    normal = normalize(normal * 2.0 - 1.0);   
+    normal = normalize(fs_in.TBN * normal);
+
     vec3 viewDir = normalize(viewPos - fs_in.FragPos);
     vec3 lightDir = normalize(light.position - fs_in.FragPos);
 
@@ -69,7 +74,7 @@ void main()
 
     vec3 specular = light.specular * spec;
 
-    // æ‡¿ÎÀ•ºı
+    
     float distance = length(light.position - fs_in.FragPos);
 
     float attenuation = 1.0 /
@@ -82,7 +87,7 @@ void main()
     diffuse *= attenuation;
     specular *= attenuation;
 
-    // º∆À„“ı”∞÷µ
+    
     float shadow = ShadowCalculation(fs_in.FragPos);
     vec3 lighting = ambient + (1.0 - shadow) * (diffuse + specular);
 
