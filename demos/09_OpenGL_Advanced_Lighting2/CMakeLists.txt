@@ -8,7 +8,12 @@ add_executable(OpenGL_Advanced_Lighting2
     resources/shaders/lighting_cube.fs
     resources/shaders/shadow_mapping_depth.vs
     resources/shaders/shadow_mapping_depth.fs
+    resources/shaders/filter.fs
+    resources/shaders/gauss.fs
+    resources/shaders/upsample.fs
+    resources/shaders/blend.fs
 )
+
 
 target_include_directories(OpenGL_Advanced_Lighting2 PRIVATE
     include
