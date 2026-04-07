@@ -65,6 +65,7 @@ vec3 specular = specularStrength * spec * lightColor;
 
 4. **点光源（Point Light）**
 - 衰减公式（同样满足 Gamma 衰减）：
+
 $$
 F_{att} = \frac{1.0}{K_c + K_l\cdot d + K_q\cdot d^2}
 $$
@@ -90,7 +91,7 @@ specular *= attenuation;
 ```
 - >对照公式即可理解
 
-5. **多光源**
+1. **多光源**
    
 多光源处理本质即将不同光照的（ambient + diffuse + specular）进行叠加
 
