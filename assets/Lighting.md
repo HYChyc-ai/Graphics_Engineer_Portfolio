@@ -103,9 +103,11 @@ specular *= attenuation;
 - **Blinn-Phong**
   
 脱离反射向量，采取标准化半程向量：
+
 $$
 \vec{H} = \frac{\vec{L} + \vec{V}}{\|\vec{L} + \vec{V}\|}
 $$
+
 ```glsl
 .fs
     vec3 halfwayDir = normalize(lightDir + viewDir);
@@ -391,17 +393,23 @@ return shadow;
 - **（1）视锥切分（Split）**
   
 我们常用**混合分割（Practical Split Scheme）**
+
 $$
 d_i = \lambda\cdot d_{i}^{log} + (1 - \lambda)\cdot d_{i}^{uniform}
 $$
+
   - 均匀分割：
+  
   $$
     d_{i}^{uniform} = n + (f - n)\frac{i}{k}
   $$
+
   - 对数分割：
+  
   $$
     d_{i}^{log} = n \cdot (\frac{f}{n})^{\frac{i}{k}}
   $$
+
   - $\lambda$ 一般取 0.5 ~ 0.9
 
 - **（2）计算每个 Cascade 的光源矩阵**
@@ -514,6 +522,7 @@ void main()
 
 如图，我们要求**切线（tangent），副切线（Bitangent）**，本质是把纹理空间（UV）的方向映射到模型空间（3D）里。
 $P_1$, $P_2$, $P_3$ 为三个点，边 $E_2$ 与纹理坐标的差$\Delta U_2$、$\Delta V_2$构成一个三角形，$\Delta U_2$与切线向量$T$方向相同，$\Delta V_2$与副切线向量$B$方向相同，，所以我们可以对$E$进行线性组合：
+
 $$
 \begin{aligned}
 (E_{1x}, E_{1y}, E_{1z}) &= \Delta U_1 (T_x, T_y, T_z) + \Delta V_1 (B_x, B_y, B_z) \\
@@ -537,6 +546,7 @@ T_x & T_y & T_z \\
 B_x & B_y & B_z
 \end{bmatrix}
 $$
+
 由此我们可以求得切线和副切线的坐标：
 
 $$
@@ -630,12 +640,17 @@ normal = normalize(fs_in.TBN * normal);
 
 由于纹理贴在物体表面，我们必须将 viewDir 乘上 viewDir 矩阵，以此转换到切线空间
 - 核心思想，根据视线方向计算偏移 UV
+
 $$
 UV^{'} = UV + \frac{viewDir_{xy}}{viewDir_z}\cdot height\cdot scale
 $$
+
 $viewDir$：视线方向（在切线空间！）
+
 $\frac{viewDir_{xy}}{viewDir_z}$：表示斜着看的程度
+
 $height$：高度图采样值
+
 $scale$：高度缩放（控制强度）
 
 这里详细说说为什么 UV 偏移会导致看起来高度有变化：
@@ -809,6 +824,7 @@ RenderQuad();
 $$
 L_{out} = \frac{L_{in}}{L_{in} + 1}
 $$
+
 ```glsl
 .fs
 // Reinhard色调映射
